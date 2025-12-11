@@ -1,15 +1,16 @@
+
 import cv2
 from ultralytics import YOLO
 
-model_path = 'runs/detect/compass_run5/weights/best.pt'
+model_path = 'runs/detect/compass_v4/weights/best.pt'
 
 model = YOLO(model_path)
 
 names = {
-    0: 'W',
-    1: 'N',
-    2: 'E',
-    3: 'S'
+    0: 'S',
+    1: 'W',
+    2: 'N',
+    3: 'E'
 }
 
 video_path = "28446-369807704.mp4"

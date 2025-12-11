@@ -9,7 +9,7 @@ def train():
         epochs=100,
         imgsz=640,
         batch=8,
-        name='compass_run'
+        name='compass_v4'
     )
 
 if __name__ == '__main__':

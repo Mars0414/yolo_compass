@@ -2,8 +2,8 @@ import cv2
 import os
 import numpy as np
 
-video_path = "28446-369807704.mp4"
-output_folder = 'frames_output'
+video_path = "gettyimages-186356683-640_adpp.mp4"
+output_folder = 'frames_v5'
 step = 10
 
 if not os.path.exists(output_folder):

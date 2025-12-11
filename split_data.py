@@ -1,62 +1,108 @@
 import os
 import shutil
 import random
+from pathlib import Path
 
-images_source_dir = "frames_output"
-labels_source_dir = "labes_raw"
-dataset_dir = "dataset"
-train_ratio = 0.8
+# --- НАСТРОЙКИ ---
+# Папка с картинками
+SOURCE_IMAGES_DIR = 'frames_v5'
 
-def split_files():
-    if not os.path.exists(images_source_dir):
-        print(f"ОШИБКА: Папка {images_source_dir} не найдена!")
+# Папка с разметкой (txt)
+SOURCE_LABELS_DIR = 'labes_v5'
+
+# Куда класть (папка основного датасета)
+DATASET_DIR = 'dataset'
+
+# Сколько процентов отдать на проверку (0.2 = 20%)
+VAL_RATIO = 0.2
+
+# Префикс, чтобы файлы не перезаписались (меняй при добавлении новых видео!)
+# Например: 'video2_', 'test_video_'
+FILE_PREFIX = 'v5_'
+
+
+# -----------------
+
+def split_and_merge_data():
+    src_img_path = Path(SOURCE_IMAGES_DIR)
+    src_lbl_path = Path(SOURCE_LABELS_DIR)
+    dataset_path = Path(DATASET_DIR)
+
+    # Проверки существования папок
+    if not src_img_path.exists():
+        print(f"Ошибка: Папка с картинками {SOURCE_IMAGES_DIR} не найдена!")
+        return
+    if not src_lbl_path.exists():
+        print(f"Ошибка: Папка с разметкой {SOURCE_LABELS_DIR} не найдена!")
         return
 
-    if os.path.exists(dataset_dir):
-        shutil.rmtree(dataset_dir)
+    # Собираем пары
+    pairs = []  # Список кортежей (путь_к_jpg, путь_к_txt)
 
-    for split in ['train', 'val']:
-        for dtype in ['images', 'labels']:
-            os.makedirs(os.path.join(dataset_dir, split, dtype), exist_ok=True)
+    # Ищем все jpg в папке картинок
+    jpg_files = list(src_img_path.glob('*.jpg'))
 
-    images = [f for f in os.listdir(images_source_dir) if f.lower().endswith(('.jpg', '.png', '.jpeg'))]
+    print(f"Всего картинок в {SOURCE_IMAGES_DIR}: {len(jpg_files)}")
 
-    if not images:
-        print(f"ОШИБКА: В папке {images_source_dir} нет картинок!")
+    for jpg_file in jpg_files:
+        # Ищем файл с таким же именем, но .txt в папке разметки
+        txt_name = f"{jpg_file.stem}.txt"
+        txt_file = src_lbl_path / txt_name
+
+        if txt_file.exists():
+            pairs.append((jpg_file, txt_file))
+        else:
+            # Если картинка есть, а разметки нет — пропускаем
+            pass
+
+    if not pairs:
+        print(f"Не найдено совпадений! Проверь имена файлов.")
+        print(f"Пример: если есть '{SOURCE_IMAGES_DIR}/frame_0.jpg',")
+        print(f"то должен быть '{SOURCE_LABELS_DIR}/frame_0.txt'")
         return
 
-    random.shuffle(images)
-    train_count = int(len(images) * train_ratio)
+    # Перемешиваем
+    random.shuffle(pairs)
 
-    print(f"Найдено картинок: {len(images)}")
-    print(f"Копируем {train_count} в train и {len(images) - train_count} в val...")
+    # Делим на train и valid
+    num_val = int(len(pairs) * VAL_RATIO)
+    val_pairs = pairs[:num_val]
+    train_pairs = pairs[num_val:]
 
-    copied_count = 0
-    for i, image_file in enumerate(images):
-        split = 'train' if i < train_count else 'val'
+    print(f"Найдено готовых пар (фото+txt): {len(pairs)}")
+    print(f"В обучение (train): {len(train_pairs)}")
+    print(f"В проверку (valid): {len(val_pairs)}")
 
-        base_name = os.path.splitext(image_file)[0]
-        label_file = base_name + ".txt"
+    # Функция перемещения
+    def move_files(pair_list, split_type):
+        dest_images = dataset_path / split_type / 'images'
+        dest_labels = dataset_path / split_type / 'labels'
 
-        src_image = os.path.join(images_source_dir, image_file)
-        src_label = os.path.join(labels_source_dir, label_file)
+        dest_images.mkdir(parents=True, exist_ok=True)
+        dest_labels.mkdir(parents=True, exist_ok=True)
 
-        if not os.path.exists(src_label):
-            src_label = os.path.join(images_source_dir, label_file)
-            if not os.path.exists(src_label):
-                print(f"Пропуск: нет txt файла для {image_file}")
-                continue
+        count = 0
+        for jpg_path, txt_path in pair_list:
+            # Новые имена
+            new_jpg_name = f"{FILE_PREFIX}{jpg_path.name}"
+            new_txt_name = f"{FILE_PREFIX}{txt_path.name}"
 
-        dst_image = os.path.join(dataset_dir, split, 'images', image_file)
-        dst_label = os.path.join(dataset_dir, split, 'labels', label_file)
+            # Перемещаем (shutil.move переносит файл, shutil.copy копирует)
+            # Лучше использовать copy, чтобы исходники остались на всякий случай
+            shutil.copy(str(jpg_path), str(dest_images / new_jpg_name))
+            shutil.copy(str(txt_path), str(dest_labels / new_txt_name))
+            count += 1
+        return count
 
-        shutil.copy(src_image, dst_image)
-        shutil.copy(src_label, dst_label)
-        copied_count += 1
+    print("Копирую файлы...")
+    # Проверь, как называется папка валидации в dataset (val или valid?)
+    # Обычно в yolo стурктуре это 'valid' или 'val'
+    t_count = move_files(train_pairs, 'train')
+    v_count = move_files(val_pairs, 'valid')
 
-    print(f"\nУСПЕХ! Скопировано {copied_count} пар файлов.")
-    print(f"Теперь запустите python main.py")
+    print(f"Готово! Скопировано {t_count + v_count} пар файлов.")
+    print("Исходные файлы остались на месте (я использовал копирование).")
 
 
 if __name__ == "__main__":
-    split_files()
+    split_and_merge_data()
