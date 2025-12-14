@@ -1,0 +1,13 @@
+# Путь к папке dataset (относительно места запуска train.py)
+path: dataset
+
+# Папки с картинками (YOLO сам найдет labels рядом)
+train: images/train
+val: images/val
+
+# Классы
+names:
+  0: W
+  1: S
+  2: E
+  3: N

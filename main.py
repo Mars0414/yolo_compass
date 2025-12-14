@@ -1,53 +1,94 @@
-
 import cv2
+import os
 from ultralytics import YOLO
 
-model_path = 'runs/detect/compass_v4/weights/best.pt'
 
-model = YOLO(model_path)
+def main():
+    # --- НАСТРОЙКИ ---
+    # Путь к модели (проверь этот путь после обучения!)
+    # Обычно это: my_project/yolo11n_custom/weights/best.pt
+    model_path = os.path.join("my_project", "yolo11n_custom", "weights", "best.pt")
 
-names = {
-    0: 'S',
-    1: 'W',
-    2: 'N',
-    3: 'E'
-}
+    video_path = "test_video.mp4"  # Видео для проверки (или поставь 0 для веб-камеры)
+    conf_threshold = 0.5  # Порог уверенности (50%)
 
-video_path = "28446-369807704.mp4"
-cap = cv2.VideoCapture(video_path)
+    # Цвета для классов (BGR формат для OpenCV)
+    # North (Красный), South (Зеленый), West (Синий), East (Желтый)
+    colors = {
+        0: (0, 0, 255),  # North
+        1: (0, 255, 0),  # South
+        2: (255, 0, 0),  # West
+        3: (0, 255, 255)  # East
+    }
+    # -----------------
 
-if not cap.isOpened():
-    print("Ошибка открытия видео")
-    exit()
+    # Проверка модели
+    if not os.path.exists(model_path):
+        print(f"ОШИБКА: Модель не найдена по пути: {model_path}")
+        print("Сначала запустите train.py и дождитесь окончания обучения.")
+        return
 
-while True:
-    ret, frame = cap.read()
-    if not ret:
-        break
+    print(f"Загрузка модели: {model_path}...")
+    model = YOLO(model_path)
 
-    results = model(frame, conf=0.25, verbose=False)
+    cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened():
+        print(f"ОШИБКА: Не удалось открыть видео {video_path}")
+        return
 
-    for result in results:
-        boxes = result.boxes
-        for box in boxes:
-            x1, y1, x2, y2 = map(int, box.xyxy[0])
+    # Получаем размеры видео для правильного отображения
+    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    print(f"Видео запущено: {width}x{height}. Нажмите 'Q' для выхода.")
 
-            conf = float(box.conf[0])
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            print("Конец видео.")
+            break
 
-            cls = int(box.cls[0])
+        # Инференс (распознавание)
+        # verbose=False, чтобы не спамить в консоль
+        results = model.predict(frame, conf=conf_threshold, verbose=False)
 
-            label_text = names.get(cls, 'Unknown')
+        # Обработка результатов
+        for result in results:
+            boxes = result.boxes
+            for box in boxes:
+                # Координаты рамки
+                x1, y1, x2, y2 = map(int, box.xyxy[0])
 
-            cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                # Класс и уверенность
+                cls_id = int(box.cls[0])
+                conf = float(box.conf[0])
 
-            text = f"{label_text} conf {conf:.2f}"
-            cv2.putText(frame, text, (x1, y1 - 10),
-                        cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+                label_name = model.names[cls_id]
+                color = colors.get(cls_id, (255, 255, 255))  # Белый, если класс неизвестен
 
-    cv2.imshow('Compass YOLO', frame)
+                # Формируем текст
+                text = f"{label_name} {conf:.2f}"
 
-    if cv2.waitKey(1) & 0xFF == ord('q'):
-        break
+                # Рисуем прямоугольник
+                cv2.rectangle(frame, (x1, y1), (x2, y2), color, 3)
 
-cap.release()
-cv2.destroyAllWindows()
+                # Рисуем подложку для текста (чтобы читалось лучше)
+                (w, h), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.8, 2)
+                cv2.rectangle(frame, (x1, y1 - 30), (x1 + w, y1), color, -1)
+
+                # Рисуем текст
+                cv2.putText(frame, text, (x1, y1 - 5),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
+
+        # Показываем кадр
+        cv2.imshow('YOLO Compass Tracker', frame)
+
+        # Выход на 'q'
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+
+    cap.release()
+    cv2.destroyAllWindows()
+
+
+if __name__ == "__main__":
+    main()

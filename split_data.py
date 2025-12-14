@@ -1,108 +1,78 @@
 import os
 import shutil
 import random
-from pathlib import Path
 
-# --- НАСТРОЙКИ ---
-# Папка с картинками
-SOURCE_IMAGES_DIR = 'frames_v5'
-
-# Папка с разметкой (txt)
-SOURCE_LABELS_DIR = 'labes_v5'
-
-# Куда класть (папка основного датасета)
-DATASET_DIR = 'dataset'
-
-# Сколько процентов отдать на проверку (0.2 = 20%)
-VAL_RATIO = 0.2
-
-# Префикс, чтобы файлы не перезаписались (меняй при добавлении новых видео!)
-# Например: 'video2_', 'test_video_'
-FILE_PREFIX = 'v5_'
+# --- НАСТРОЙКИ (Под ваш скриншот) ---
+source_images = "frames"  # Ваша папка с исходными картинками
+source_labels = "labels"  # Ваша папка с исходными txt файлами
+dataset_dir = "dataset"  # Имя папки, которая создастся (куда всё разложим)
+train_ratio = 0.8  # 80% файлов на обучение, 20% на проверку
 
 
-# -----------------
+# -----------------------------
 
-def split_and_merge_data():
-    src_img_path = Path(SOURCE_IMAGES_DIR)
-    src_lbl_path = Path(SOURCE_LABELS_DIR)
-    dataset_path = Path(DATASET_DIR)
-
-    # Проверки существования папок
-    if not src_img_path.exists():
-        print(f"Ошибка: Папка с картинками {SOURCE_IMAGES_DIR} не найдена!")
-        return
-    if not src_lbl_path.exists():
-        print(f"Ошибка: Папка с разметкой {SOURCE_LABELS_DIR} не найдена!")
+def split_data():
+    # 1. Проверка, существуют ли исходные папки
+    if not os.path.exists(source_images) or not os.path.exists(source_labels):
+        print("ОШИБКА: Не найдена папка 'frames' или 'labels'!")
+        print("Убедитесь, что вы запускаете скрипт из папки yolo_compass")
         return
 
-    # Собираем пары
-    pairs = []  # Список кортежей (путь_к_jpg, путь_к_txt)
+    # 2. Очистка старой папки dataset, если она была, чтобы не было дублей
+    if os.path.exists(dataset_dir):
+        shutil.rmtree(dataset_dir)
 
-    # Ищем все jpg в папке картинок
-    jpg_files = list(src_img_path.glob('*.jpg'))
+    # 3. Создаем структуру папок (images/train, labels/train и т.д.)
+    for split in ['train', 'val']:
+        os.makedirs(os.path.join(dataset_dir, 'images', split), exist_ok=True)
+        os.makedirs(os.path.join(dataset_dir, 'labels', split), exist_ok=True)
 
-    print(f"Всего картинок в {SOURCE_IMAGES_DIR}: {len(jpg_files)}")
+    # 4. Получаем список картинок
+    images = [f for f in os.listdir(source_images) if f.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp'))]
 
-    for jpg_file in jpg_files:
-        # Ищем файл с таким же именем, но .txt в папке разметки
-        txt_name = f"{jpg_file.stem}.txt"
-        txt_file = src_lbl_path / txt_name
+    # Перемешиваем случайно
+    random.seed(42)  # Фиксируем случайность, чтобы при повторном запуске разбиение было тем же
+    random.shuffle(images)
 
-        if txt_file.exists():
-            pairs.append((jpg_file, txt_file))
-        else:
-            # Если картинка есть, а разметки нет — пропускаем
-            pass
+    train_count = int(len(images) * train_ratio)
 
-    if not pairs:
-        print(f"Не найдено совпадений! Проверь имена файлов.")
-        print(f"Пример: если есть '{SOURCE_IMAGES_DIR}/frame_0.jpg',")
-        print(f"то должен быть '{SOURCE_LABELS_DIR}/frame_0.txt'")
-        return
+    print(f"Найдено картинок: {len(images)}")
+    print(f"Разбиение: {train_count} в train, {len(images) - train_count} в val")
 
-    # Перемешиваем
-    random.shuffle(pairs)
+    # 5. Раскидываем файлы
+    missing_labels = 0
+    for i, image_file in enumerate(images):
+        # Определяем, куда кидать (train или val)
+        split = 'train' if i < train_count else 'val'
 
-    # Делим на train и valid
-    num_val = int(len(pairs) * VAL_RATIO)
-    val_pairs = pairs[:num_val]
-    train_pairs = pairs[num_val:]
+        # Имена файлов
+        base_name = os.path.splitext(image_file)[0]
+        label_file = base_name + ".txt"
 
-    print(f"Найдено готовых пар (фото+txt): {len(pairs)}")
-    print(f"В обучение (train): {len(train_pairs)}")
-    print(f"В проверку (valid): {len(val_pairs)}")
+        # Полные пути к исходникам
+        src_img_path = os.path.join(source_images, image_file)
+        src_lbl_path = os.path.join(source_labels, label_file)
 
-    # Функция перемещения
-    def move_files(pair_list, split_type):
-        dest_images = dataset_path / split_type / 'images'
-        dest_labels = dataset_path / split_type / 'labels'
+        # Проверяем, есть ли txt файл для этой картинки
+        if not os.path.exists(src_lbl_path):
+            # Если txt файла нет, пропускаем картинку (или можно кинуть без метки, но для обучения это плохо)
+            print(f"ВНИМАНИЕ: Нет файла разметки для {image_file}. Пропуск.")
+            missing_labels += 1
+            continue
 
-        dest_images.mkdir(parents=True, exist_ok=True)
-        dest_labels.mkdir(parents=True, exist_ok=True)
+        # Куда копируем
+        dst_img_path = os.path.join(dataset_dir, 'images', split, image_file)
+        dst_lbl_path = os.path.join(dataset_dir, 'labels', split, label_file)
 
-        count = 0
-        for jpg_path, txt_path in pair_list:
-            # Новые имена
-            new_jpg_name = f"{FILE_PREFIX}{jpg_path.name}"
-            new_txt_name = f"{FILE_PREFIX}{txt_path.name}"
+        # Копируем
+        shutil.copy(src_img_path, dst_img_path)
+        shutil.copy(src_lbl_path, dst_lbl_path)
 
-            # Перемещаем (shutil.move переносит файл, shutil.copy копирует)
-            # Лучше использовать copy, чтобы исходники остались на всякий случай
-            shutil.copy(str(jpg_path), str(dest_images / new_jpg_name))
-            shutil.copy(str(txt_path), str(dest_labels / new_txt_name))
-            count += 1
-        return count
-
-    print("Копирую файлы...")
-    # Проверь, как называется папка валидации в dataset (val или valid?)
-    # Обычно в yolo стурктуре это 'valid' или 'val'
-    t_count = move_files(train_pairs, 'train')
-    v_count = move_files(val_pairs, 'valid')
-
-    print(f"Готово! Скопировано {t_count + v_count} пар файлов.")
-    print("Исходные файлы остались на месте (я использовал копирование).")
+    print("\nГОТОВО!")
+    if missing_labels > 0:
+        print(f"Пропущено файлов без разметки: {missing_labels}")
+    print(f"Папка '{dataset_dir}' создана и заполнена.")
 
 
 if __name__ == "__main__":
-    split_and_merge_data()
+    split_data()
