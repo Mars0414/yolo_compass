@@ -9,7 +9,7 @@ video_paths = ["gettyimages-816687434-640_adpp.mp4",
 for video_path in video_paths:
     prefix = video_path.split(".")[0]
     output_folder = 'frames'
-    step = 10
+    step = 4
 
     if not os.path.exists(output_folder):
         os.makedirs(output_folder)

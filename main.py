@@ -9,14 +9,12 @@ def main():
     video_path = "test_video.mp4"
     conf_threshold = 0.5
 
-
     colors = {
-        0: (0, 0, 255),
+        0: (255, 0, 0),
         1: (0, 255, 0),
-        2: (255, 0, 0),
-        3: (0, 255, 255)
+        2: (0, 255, 255),
+        3: (0, 0, 255)
     }
-
     if not os.path.exists(model_path):
         print(f"ОШИБКА: Модель не найдена по пути: {model_path}")
         print("Сначала запустите train.py и дождитесь окончания обучения.")
